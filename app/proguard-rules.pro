@@ -1,0 +1,2 @@
+-keep class com.spendtracker.pro.** { *; }
+-keep class androidx.room.** { *; }
