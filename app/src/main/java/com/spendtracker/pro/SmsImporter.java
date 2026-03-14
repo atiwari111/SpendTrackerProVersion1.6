@@ -96,9 +96,12 @@ public class SmsImporter {
                                 continue;
                             }
 
-                            // FIX 4: Null-safe assignment for every field from parser result
+                            // FIX 4: Null-safe assignment + UPI merchant resolution
+                            // e.g. "Block Upi.download Pnb" → "Gullak"
                             Transaction tx   = new Transaction();
-                            tx.merchant      = p.merchant      != null ? p.merchant      : "Unknown";
+                            String resolvedMerchant = CategoryEngine.resolveUpiMerchant(p.merchant);
+                            tx.merchant      = resolvedMerchant != null ? resolvedMerchant
+                                             : (p.merchant != null ? p.merchant : "Unknown");
                             tx.amount        = p.amount;
                             tx.paymentMethod = p.paymentMethod != null ? p.paymentMethod : "BANK";
                             tx.paymentDetail = p.paymentDetail != null ? p.paymentDetail : "";

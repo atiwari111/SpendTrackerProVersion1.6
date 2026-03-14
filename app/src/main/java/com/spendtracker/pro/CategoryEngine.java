@@ -471,6 +471,23 @@ public class CategoryEngine {
         MERCHANT_MAP.put("tata aia",           "💰 Investment");
         MERCHANT_MAP.put("policybazaar",       "💰 Investment");
         MERCHANT_MAP.put("acko",               "💰 Investment");
+        // Savings & micro-investment apps
+        MERCHANT_MAP.put("gullak",             "💰 Investment");
+        MERCHANT_MAP.put("jar",                "💰 Investment");
+        MERCHANT_MAP.put("jar app",            "💰 Investment");
+        MERCHANT_MAP.put("smallcase",          "💰 Investment");
+        MERCHANT_MAP.put("kuvera",             "💰 Investment");
+        MERCHANT_MAP.put("paytm money",        "💰 Investment");
+        MERCHANT_MAP.put("etmoney",            "💰 Investment");
+        MERCHANT_MAP.put("et money",           "💰 Investment");
+        MERCHANT_MAP.put("scripbox",           "💰 Investment");
+        MERCHANT_MAP.put("wealthdesk",         "💰 Investment");
+        MERCHANT_MAP.put("fi money",           "💰 Investment");
+        MERCHANT_MAP.put("fi.money",           "💰 Investment");
+        MERCHANT_MAP.put("niyo",               "💰 Investment");
+        MERCHANT_MAP.put("jupiter",            "💰 Investment");
+        MERCHANT_MAP.put("slice",              "💰 Investment");
+        MERCHANT_MAP.put("cred",               "💰 Investment");
 
         // ── RENT ──────────────────────────────────────────────────
         MERCHANT_MAP.put("nobroker",           "🏠 Rent");
@@ -544,10 +561,79 @@ public class CategoryEngine {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // MAIN CLASSIFY — 4-tier priority
+    // UPI ID → MERCHANT NAME RESOLVER
+    // Maps known UPI VPA domains/handles to real merchant names.
+    // Fixes cases where parser extracts raw UPI address as merchant.
+    // e.g. "gullak@axisbank" → "Gullak", "block.upi.download@pnb" → "Gullak"
+    // ─────────────────────────────────────────────────────────────
+    private static final Map<String, String> UPI_ID_MAP = new LinkedHashMap<>();
+    static {
+        // Savings / Investment apps
+        UPI_ID_MAP.put("gullak",         "Gullak");
+        UPI_ID_MAP.put("block.upi",      "Gullak");   // Gullak uses block.upi.download VPA
+        UPI_ID_MAP.put("jar",            "Jar");
+        UPI_ID_MAP.put("jar.app",        "Jar");
+        UPI_ID_MAP.put("kuvera",         "Kuvera");
+        UPI_ID_MAP.put("smallcase",      "Smallcase");
+        UPI_ID_MAP.put("paytmmoney",     "Paytm Money");
+        UPI_ID_MAP.put("etmoney",        "ET Money");
+        UPI_ID_MAP.put("scripbox",       "Scripbox");
+        UPI_ID_MAP.put("cred",           "CRED");
+        // Food
+        UPI_ID_MAP.put("swiggy",         "Swiggy");
+        UPI_ID_MAP.put("zomato",         "Zomato");
+        UPI_ID_MAP.put("dominos",        "Dominos");
+        // Shopping
+        UPI_ID_MAP.put("amazon",         "Amazon");
+        UPI_ID_MAP.put("flipkart",       "Flipkart");
+        UPI_ID_MAP.put("meesho",         "Meesho");
+        UPI_ID_MAP.put("myntra",         "Myntra");
+        // Groceries
+        UPI_ID_MAP.put("blinkit",        "Blinkit");
+        UPI_ID_MAP.put("zepto",          "Zepto");
+        UPI_ID_MAP.put("bigbasket",      "BigBasket");
+        UPI_ID_MAP.put("jiomart",        "JioMart");
+        // Transport
+        UPI_ID_MAP.put("uber",           "Uber");
+        UPI_ID_MAP.put("ola",            "Ola");
+        UPI_ID_MAP.put("rapido",         "Rapido");
+        // Bills
+        UPI_ID_MAP.put("airtel",         "Airtel");
+        UPI_ID_MAP.put("jio",            "Jio");
+        UPI_ID_MAP.put("netflix",        "Netflix");
+        UPI_ID_MAP.put("spotify",        "Spotify");
+        // Investment
+        UPI_ID_MAP.put("zerodha",        "Zerodha");
+        UPI_ID_MAP.put("groww",          "Groww");
+        UPI_ID_MAP.put("upstox",         "Upstox");
+        UPI_ID_MAP.put("angelone",       "Angel One");
+        UPI_ID_MAP.put("angel",          "Angel One");
+        UPI_ID_MAP.put("5paisa",         "5Paisa");
+    }
+
+    /**
+     * If the extracted merchant name looks like a UPI VPA (contains dots or @),
+     * try to resolve it to a real merchant name using UPI_ID_MAP.
+     * e.g. "Block Upi.download Pnb" → "Gullak"
+     *      "gullak@axisbank"         → "Gullak"
+     */
+    public static String resolveUpiMerchant(String raw) {
+        if (raw == null) return null;
+        String lower = raw.toLowerCase().replaceAll("\s+", ".");
+        for (Map.Entry<String, String> e : UPI_ID_MAP.entrySet()) {
+            if (lower.contains(e.getKey())) return e.getValue();
+        }
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // MAIN CLASSIFY — 5-tier priority
     // ─────────────────────────────────────────────────────────────
     public static String classify(String merchant, String smsBody) {
-        String m = (merchant != null ? merchant : "").toLowerCase().trim();
+        // FIX: If merchant looks like a UPI VPA (dots/@ = raw UPI address),
+        // resolve to real merchant name first before classifying
+        String resolved = resolveUpiMerchant(merchant);
+        String m = (resolved != null ? resolved : (merchant != null ? merchant : "")).toLowerCase().trim();
 
         // Priority 1: User-learned custom mapping (highest priority)
         String learned = getLearnedCategory(m);

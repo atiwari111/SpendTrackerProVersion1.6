@@ -76,6 +76,9 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(this, AnalyticsActivity.class)));
         findViewById(R.id.cardBudget).setOnClickListener(v ->
                 startActivity(new Intent(this, BudgetActivity.class)));
+        // FIX: "Tap to set budgets" text was not clickable — now navigates to BudgetActivity
+        tvBudgetLeft.setOnClickListener(v ->
+                startActivity(new Intent(this, BudgetActivity.class)));
         findViewById(R.id.cardNetWorth).setOnClickListener(v ->
                 startActivity(new Intent(this, NetWorthActivity.class)));
     }
