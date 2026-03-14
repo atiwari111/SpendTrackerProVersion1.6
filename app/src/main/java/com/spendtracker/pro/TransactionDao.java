@@ -7,6 +7,7 @@ import java.util.List;
 @Dao
 public interface TransactionDao {
     @Insert void insert(Transaction t);
+    @Insert void insertAll(List<Transaction> list);
     @Update void update(Transaction t);
     @Delete void delete(Transaction t);
 
@@ -39,7 +40,6 @@ public interface TransactionDao {
 
     @Query("DELETE FROM transactions")
     void deleteAll();
-
 
     @Query("SELECT COALESCE(SUM(amount), 0.0) FROM transactions WHERE category = :cat AND isSelfTransfer = 0 AND timestamp >= :start AND timestamp < :end")
     double getSumForCategoryBetween(String cat, long start, long end);

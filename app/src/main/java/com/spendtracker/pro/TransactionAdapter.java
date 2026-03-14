@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import java.io.InputStream;
 import android.view.*;
+import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.*;
@@ -42,7 +43,13 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
                 InputStream is = h.itemView.getContext().getAssets().open(logoFile);
                 Drawable d = Drawable.createFromStream(is, null);
                 is.close();
-                setInitialFallback(h, merchant, t); // ivLogo not in layout, use tvIcon
+                if (h.ivLogo != null) {
+                    h.ivLogo.setVisibility(View.VISIBLE);
+                    h.ivLogo.setImageDrawable(d);
+                    h.tvIcon.setVisibility(View.GONE);
+                } else {
+                    setInitialFallback(h, merchant, t);
+                }
             } catch (Exception e) {
                 // PNG not bundled yet — use colored initial
                 setInitialFallback(h, merchant, t);
@@ -74,9 +81,17 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
     }
 
     private void setInitialFallback(VH h, String merchant, Transaction t) {
-        if (h.tvIcon != null) {
-            h.tvIcon.setVisibility(View.VISIBLE);
-            h.tvIcon.setText(t.categoryIcon != null ? t.categoryIcon : "💼");
+        Drawable initial = MerchantLogoProvider.getInitialDrawable(merchant);
+        if (h.ivLogo != null) {
+            h.ivLogo.setVisibility(View.VISIBLE);
+            h.ivLogo.setImageDrawable(initial);
+            h.tvIcon.setVisibility(View.GONE);
+        } else {
+            // Layout doesn't have ivLogo yet — fall back to emoji in tvIcon
+            if (h.tvIcon != null) {
+                h.tvIcon.setVisibility(View.VISIBLE);
+                h.tvIcon.setText(t.categoryIcon != null ? t.categoryIcon : "💼");
+            }
         }
     }
 
@@ -90,6 +105,7 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
 
     static class VH extends RecyclerView.ViewHolder {
         TextView tvIcon, tvMerchant, tvCategory, tvDate, tvAmount, tvPayment;
+        ImageView ivLogo; // optional — present in layout if added
 
         VH(View v) {
             super(v);
@@ -99,6 +115,7 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
             tvDate     = v.findViewById(R.id.tvDate);
             tvAmount   = v.findViewById(R.id.tvAmount);
             tvPayment  = v.findViewById(R.id.tvPayment);
+            ivLogo     = v.findViewById(R.id.ivLogo); // null-safe if not in layout
         }
     }
 }

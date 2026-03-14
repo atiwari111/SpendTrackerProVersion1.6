@@ -1,7 +1,6 @@
 package com.spendtracker.pro;
 
 import androidx.room.Entity;
-import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
 @Entity(tableName = "budgets")
@@ -18,7 +17,6 @@ public class Budget {
 
     public Budget() {}
 
-    @Ignore
     public Budget(String category, double limitAmount, int month, int year, String icon, int color) {
         this.category = category;
         this.limitAmount = limitAmount;
