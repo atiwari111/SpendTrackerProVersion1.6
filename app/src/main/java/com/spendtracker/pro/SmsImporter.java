@@ -7,7 +7,33 @@ import android.util.Log;
 import java.util.*;
 
 public class SmsImporter {
-    private static final String TAG = "SMS_IMPORT";
+    private static final String TAG           = "SMS_IMPORT";
+    private static final String PREFS_NAME    = "sms_importer_prefs";
+    private static final String KEY_LAST_SCAN = "last_scan_ts";
+
+    // ── FIX 7: Incremental scanning ──────────────────────────────
+    // First scan: goes back 90 days.
+    // Every subsequent scan: only fetches SMS newer than last scan
+    // (with a 1-minute overlap to avoid edge-case gaps).
+    private static long getSinceTimestamp(Context ctx) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        long lastScan = prefs.getLong(KEY_LAST_SCAN, 0L);
+        if (lastScan == 0L) {
+            return System.currentTimeMillis() - 90L * 86400000L; // 90 days
+        }
+        return lastScan - 60_000L; // 1-min overlap
+    }
+
+    private static void saveLastScanTimestamp(Context ctx) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putLong(KEY_LAST_SCAN, System.currentTimeMillis()).apply();
+    }
+
+    /** Call from Settings to force a full 90-day rescan next time */
+    public static void resetLastScanTimestamp(Context ctx) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().remove(KEY_LAST_SCAN).apply();
+    }
 
     public interface Callback {
         void onProgress(int done, int total);
@@ -16,12 +42,17 @@ public class SmsImporter {
     }
 
     public static void importAll(Context ctx, Callback cb) {
-        new Thread(() -> {
+        // FIX 8: Use shared AppExecutors instead of new Thread() — prevents thread proliferation
+        AppExecutors.io().execute(() -> {
             try {
-                Uri uri = Uri.parse("content://sms/inbox");
-                long since = System.currentTimeMillis() - 90L * 86400000L;
+                // FIX 3: Ensure CategoryEngine is always initialized before use
+                CategoryEngine.init(ctx);
 
-                // FIX 6: try-with-resources — cursor always closed even on exception
+                Uri uri = Uri.parse("content://sms/inbox");
+                long since = getSinceTimestamp(ctx);
+                Log.d(TAG, "Scanning SMS since: " + new Date(since));
+
+                // FIX 6: try-with-resources — cursor always closed, even on exception
                 try (Cursor c = ctx.getContentResolver().query(uri,
                         new String[]{"_id", "address", "body", "date"},
                         "date > ?", new String[]{String.valueOf(since)}, "date DESC")) {
@@ -35,12 +66,13 @@ public class SmsImporter {
                     int imported = 0;
                     AppDatabase db = AppDatabase.getInstance(ctx);
                     List<Transaction> batch = new ArrayList<>();
+                    Log.d(TAG, "Total SMS to scan: " + total);
 
                     while (c.moveToNext()) {
                         try {
                             // FIX 1: getColumnIndexOrThrow instead of getColumnIndex
-                            // getColumnIndex silently returns -1 on missing columns → crash
-                            // getColumnIndexOrThrow throws a clear IllegalArgumentException instead
+                            // getColumnIndex returns -1 silently → crash on getString(-1)
+                            // getColumnIndexOrThrow throws a clear IllegalArgumentException
                             String body = c.getString(c.getColumnIndexOrThrow("body"));
                             String addr = c.getString(c.getColumnIndexOrThrow("address"));
                             long   date = c.getLong(c.getColumnIndexOrThrow("date"));
@@ -48,23 +80,23 @@ public class SmsImporter {
                             if (body == null || body.trim().isEmpty()) continue;
                             if (addr == null) addr = "";
 
-                            // Debug log — filter in Logcat with tag SMS_IMPORT
-                            Log.d(TAG, "Parsing SMS from: " + addr
-                                    + " | " + body.substring(0, Math.min(body.length(), 60)));
+                            Log.d(TAG, "Parsing: " + addr + " | "
+                                    + body.substring(0, Math.min(body.length(), 60)));
 
                             // FIX 2: Always null-check parser result before accessing any field
                             BankAwareSmsParser.ParseResult p = BankAwareSmsParser.parse(body, addr);
                             if (p == null) {
-                                Log.d(TAG, "Parser returned null — not a bank transaction, skipping");
+                                Log.d(TAG, "Not a bank transaction — skipping");
                                 continue;
                             }
 
+                            // FIX 5: rawSms has @Index in Transaction entity — this is fast
                             if (db.transactionDao().findBySms(body) != null) {
-                                Log.d(TAG, "Duplicate SMS — skipping");
+                                Log.d(TAG, "Duplicate — skipping");
                                 continue;
                             }
 
-                            // FIX 4: Null-safe assignment for every field from parser
+                            // FIX 4: Null-safe assignment for every field from parser result
                             Transaction tx   = new Transaction();
                             tx.merchant      = p.merchant      != null ? p.merchant      : "Unknown";
                             tx.amount        = p.amount;
@@ -84,10 +116,8 @@ public class SmsImporter {
                             Log.d(TAG, "✓ " + tx.merchant + " ₹" + tx.amount + " [" + tx.category + "]");
 
                         } catch (IllegalArgumentException colEx) {
-                            // getColumnIndexOrThrow throws this if column name doesn't exist
-                            Log.e(TAG, "Column missing in SMS cursor: " + colEx.getMessage());
+                            Log.e(TAG, "Column missing: " + colEx.getMessage());
                         } catch (Exception rowEx) {
-                            // Any other per-row error — log and skip, don't abort entire scan
                             Log.e(TAG, "Row error: " + rowEx.getMessage());
                         }
 
@@ -96,20 +126,22 @@ public class SmsImporter {
                             cb.onProgress(imp, total);
                         }
                     }
-                    // Cursor auto-closed here by try-with-resources
+                    // Cursor auto-closed by try-with-resources
 
-                    // FIX 3: DAO uses OnConflictStrategy.IGNORE so duplicate inserts don't crash
+                    // FIX 3 (DAO side): insertAll uses OnConflictStrategy.IGNORE
                     if (!batch.isEmpty()) {
                         db.transactionDao().insertAll(batch);
-                        Log.d(TAG, "Bulk inserted " + batch.size() + " transactions");
+                        Log.d(TAG, "Bulk inserted: " + batch.size());
                     }
+
+                    // FIX 7: Save timestamp so next scan only fetches new SMS
+                    saveLastScanTimestamp(ctx);
 
                     if (cb != null) cb.onComplete(imported);
                 }
 
             } catch (SecurityException se) {
-                // FIX 5: Catch permission denial cleanly
-                Log.e(TAG, "SMS permission denied: " + se.getMessage());
+                Log.e(TAG, "Permission denied: " + se.getMessage());
                 if (cb != null) cb.onError("SMS permission denied. Please grant READ_SMS permission.");
             } catch (Exception e) {
                 Log.e(TAG, "Import failed: " + e.getMessage());
@@ -118,6 +150,6 @@ public class SmsImporter {
                     cb.onError(msg != null ? msg : "Unexpected error during SMS scan.");
                 }
             }
-        }).start();
+        });
     }
 }

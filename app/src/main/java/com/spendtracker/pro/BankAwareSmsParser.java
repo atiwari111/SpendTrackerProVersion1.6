@@ -3,191 +3,190 @@ package com.spendtracker.pro;
 import java.util.regex.*;
 
 /**
- * BankAwareSmsParser v1.6
+ * BankAwareSmsParser v1.7
  *
- * Different banks send wildly different SMS formats.
- * Generic regex often fails on bank-specific templates.
- *
- * This class tries bank-specific patterns FIRST, then falls back
- * to the generic SmsParser.
- *
- * Example bank SMS formats:
- * ──────────────────────────────────────────────────────────────
- * HDFC:   Rs 450 debited from A/c XX1234 on 13-Mar to SWIGGY via UPI
- * SBI:    INR 450 spent on card XX1234 at AMAZON on 13-Mar-25
- * ICICI:  UPI txn of Rs 320 to ZOMATO Ref No 123456 on 13/03/25
- * AXIS:   INR 200.00 debited from AXIS Bank ac XX5678 towards NETFLIX on 13-03-25
- * KOTAK:  Rs.180.00 debited from Kotak Bank A/c XX9012 to BLINKIT via UPI
- * YES:    ₹500 debited from YBL A/c XX3456 to FLIPKART via UPI
- * ──────────────────────────────────────────────────────────────
+ * Fixes from v1.6:
+ * - CRASH FIX: SBI_SPENT and GENERIC_UPI_TO had broken regex: [0-9]{1,2]) 
+ *   (mismatched bracket) → PatternSyntaxException crash at class load time
+ * - Added top-level try/catch around all Pattern.compile() calls so a bad
+ *   regex never crashes the app
+ * - Defensive Double.parseDouble with try/catch in tryPatterns()
+ * - Null-safe merchant, category, paymentDetail throughout
  */
 public class BankAwareSmsParser {
 
     // ── Result class ─────────────────────────────────────────────
     public static class ParseResult {
-        public final double   amount;
-        public final String   merchant;
-        public final String   paymentMethod;
-        public final String   paymentDetail;
-        public final String   category;
-        public final String   bankName;
-        public final boolean  isUpi;
+        public final double  amount;
+        public final String  merchant;
+        public final String  paymentMethod;
+        public final String  paymentDetail;
+        public final String  category;
+        public final String  bankName;
+        public final boolean isUpi;
 
         ParseResult(double amount, String merchant, String paymentMethod,
                     String paymentDetail, String category, String bankName, boolean isUpi) {
             this.amount        = amount;
-            this.merchant      = merchant;
-            this.paymentMethod = paymentMethod;
-            this.paymentDetail = paymentDetail;
-            this.category      = category;
-            this.bankName      = bankName;
+            this.merchant      = merchant != null ? merchant : "Unknown";
+            this.paymentMethod = paymentMethod != null ? paymentMethod : "BANK";
+            this.paymentDetail = paymentDetail != null ? paymentDetail : "";
+            this.category      = category != null ? category : "Others";
+            this.bankName      = bankName != null ? bankName : "";
             this.isUpi         = isUpi;
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
     // BANK-SPECIFIC PATTERNS
-    // Each pattern group: [amountGroup, merchantGroup, patternRegex]
     // ═══════════════════════════════════════════════════════════════
 
     // ── HDFC ──────────────────────────────────────────────────────
-    // Rs 450 debited from A/c XX1234 on 13-Mar to SWIGGY via UPI
-    // Rs.2,500 debited from a/c XX1234 on 12-Mar-25.Info:AMAZON.Avbl Bal:12345.67
-    private static final Pattern HDFC_DEBIT = Pattern.compile(
+    private static final Pattern HDFC_DEBIT = safeCompile(
         "(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:has been\\s*)?debited.*?to\\s+([A-Za-z0-9&'./\\-\\s]{2,40}?)\\s*(?:via|Ref|Avbl|$)",
         Pattern.CASE_INSENSITIVE);
 
-    // Rs. 1,234.00 debited from HDFC Bank A/c XX1234.Info:ZOMATO
-    private static final Pattern HDFC_INFO = Pattern.compile(
+    private static final Pattern HDFC_INFO = safeCompile(
         "(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*debited.*?Info:([A-Za-z0-9&'./\\-\\s]{2,40})",
         Pattern.CASE_INSENSITIVE);
 
     // ── SBI ───────────────────────────────────────────────────────
-    // INR 450 spent on card XX1234 at AMAZON on 13-Mar-25
-    // Your A/c XX1234 debited by INR 320.00 on 13-Mar-25. Merchant: FLIPKART
-    private static final Pattern SBI_SPENT = Pattern.compile(
-        "(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2])?)\\s*(?:spent|debited).*?(?:at|to|merchant:?)\\s+([A-Za-z0-9&'./\\-\\s]{2,40}?)(?:\\s+on|\\s+via|\\s*Ref|\\s*Avl|\\.|,|$)",
+    // FIX: was [0-9]{1,2]) — missing opening bracket, caused PatternSyntaxException
+    private static final Pattern SBI_SPENT = safeCompile(
+        "(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:spent|debited).*?(?:at|to|merchant:?)\\s+([A-Za-z0-9&'./\\-\\s]{2,40}?)(?:\\s+on|\\s+via|\\s*Ref|\\s*Avl|\\.|,|$)",
         Pattern.CASE_INSENSITIVE);
 
-    // SBI: IMPS/UPI: Rs 320 debited from A/c XX1234 to ZOMATO (Ref:123)
-    private static final Pattern SBI_UPI = Pattern.compile(
+    private static final Pattern SBI_UPI = safeCompile(
         "(?:IMPS|UPI)[/\\s].*?(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*debited.*?to\\s+([A-Za-z0-9@&'./\\-\\s]{2,50}?)(?:\\s*\\(|\\s+Ref|\\.|,|$)",
         Pattern.CASE_INSENSITIVE);
 
     // ── ICICI ─────────────────────────────────────────────────────
-    // UPI txn of Rs 320 to ZOMATO Ref No 123456 on 13/03/25
-    // ICICI Bank: Rs 500 debited from A/c XX1234 on 13/03. Info: NETFLIX. Avail Bal: Rs 10000
-    private static final Pattern ICICI_UPI = Pattern.compile(
+    private static final Pattern ICICI_UPI = safeCompile(
         "UPI\\s+txn\\s+of\\s+(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s+to\\s+([A-Za-z0-9&'./\\-\\s]{2,40}?)\\s+Ref",
         Pattern.CASE_INSENSITIVE);
 
-    private static final Pattern ICICI_INFO = Pattern.compile(
+    private static final Pattern ICICI_INFO = safeCompile(
         "(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*debited.*?Info[:\\s]+([A-Za-z0-9&'./\\-\\s]{2,40}?)(?:\\.|Avail|$)",
         Pattern.CASE_INSENSITIVE);
 
     // ── AXIS ──────────────────────────────────────────────────────
-    // INR 200.00 debited from AXIS Bank ac XX5678 towards NETFLIX on 13-03-25
-    // INR 350 spent on your Axis Bank Credit Card XX5678 at SWIGGY on 13-03-25
-    private static final Pattern AXIS_TOWARDS = Pattern.compile(
+    private static final Pattern AXIS_TOWARDS = safeCompile(
         "(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:debited|spent).*?(?:towards|at|to)\\s+([A-Za-z0-9&'./\\-\\s]{2,40}?)\\s+on",
         Pattern.CASE_INSENSITIVE);
 
     // ── KOTAK ─────────────────────────────────────────────────────
-    // Rs.180.00 debited from Kotak Bank A/c XX9012 to BLINKIT via UPI
-    private static final Pattern KOTAK_TO = Pattern.compile(
+    private static final Pattern KOTAK_TO = safeCompile(
         "(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*debited.*?to\\s+([A-Za-z0-9&'./\\-\\s]{2,40}?)(?:\\s+via|\\s+Ref|\\.|$)",
         Pattern.CASE_INSENSITIVE);
 
-    // ── GENERIC FALLBACKS ─────────────────────────────────────────
-    // "UPI/IMPS payment of Rs 500 to merchant@upi" — extract UPI recipient
-    private static final Pattern GENERIC_UPI_TO = Pattern.compile(
-        "(?:payment|txn|transaction|transfer).*?(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2])?).*?to\\s+([A-Za-z0-9@&'./\\-\\s]{2,50}?)(?:\\s+Ref|\\s+on|\\.|,|$)",
+    // ── GENERIC FALLBACK ──────────────────────────────────────────
+    // FIX: was [0-9]{1,2]) — same mismatched bracket bug as SBI_SPENT
+    private static final Pattern GENERIC_UPI_TO = safeCompile(
+        "(?:payment|txn|transaction|transfer).*?(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?).*?to\\s+([A-Za-z0-9@&'./\\-\\s]{2,50}?)(?:\\s+Ref|\\s+on|\\.|,|$)",
         Pattern.CASE_INSENSITIVE);
 
     // ═══════════════════════════════════════════════════════════════
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Main entry point.
-     * Detects the bank, tries bank-specific pattern, falls back to generic SmsParser.
-     */
     public static ParseResult parse(String body, String sender) {
         if (body == null || body.isEmpty()) return null;
 
-        // Detect bank first
-        BankDetector.BankInfo bankInfo = BankDetector.detect(sender, body);
-        String bank = bankInfo.name; // e.g. "HDFC", "SBI", "ICICI"
+        try {
+            BankDetector.BankInfo bankInfo = BankDetector.detect(sender, body);
+            String bank = bankInfo != null ? bankInfo.name : "";
+            if (bank == null) bank = "";
 
-        // Try bank-specific parser
-        AmountMerchant am = null;
-        switch (bank) {
-            case "HDFC":
-                am = tryPatterns(body, HDFC_DEBIT, HDFC_INFO);
-                break;
-            case "SBI":
-                am = tryPatterns(body, SBI_UPI, SBI_SPENT);
-                break;
-            case "ICICI":
-                am = tryPatterns(body, ICICI_UPI, ICICI_INFO);
-                break;
-            case "AXIS":
-                am = tryPatterns(body, AXIS_TOWARDS);
-                break;
-            case "KOTAK":
-                am = tryPatterns(body, KOTAK_TO);
-                break;
-            default:
-                am = tryPatterns(body, GENERIC_UPI_TO);
-                break;
+            AmountMerchant am = null;
+            switch (bank) {
+                case "HDFC":  am = tryPatterns(body, HDFC_DEBIT, HDFC_INFO);  break;
+                case "SBI":   am = tryPatterns(body, SBI_UPI, SBI_SPENT);     break;
+                case "ICICI": am = tryPatterns(body, ICICI_UPI, ICICI_INFO);  break;
+                case "AXIS":  am = tryPatterns(body, AXIS_TOWARDS);            break;
+                case "KOTAK": am = tryPatterns(body, KOTAK_TO);                break;
+                default:      am = tryPatterns(body, GENERIC_UPI_TO);          break;
+            }
+
+            // Fall back to generic SmsParser if bank-specific failed
+            if (am == null || am.amount <= 0) {
+                SmsParser.ParsedTransaction generic = SmsParser.parse(body, sender);
+                if (generic == null) return null;
+                String detail = buildPaymentDetail(bank, generic.paymentDetail);
+                return new ParseResult(generic.amount, generic.merchant,
+                        generic.paymentMethod, detail, generic.category, bank, isUpi(body));
+            }
+
+            // Bank-specific result
+            String merchant      = am.merchant;
+            String category      = CategoryEngine.classify(merchant, body);
+            if (category == null) category = "Others";
+            String paymentMethod = detectPaymentMethod(body);
+            String paymentDetail = buildPaymentDetail(bank, buildDetailFromBody(body, bank));
+            String upiId         = UpiDetector.detectUpiId(body);
+            if (upiId != null && !upiId.isEmpty()) paymentDetail += " · " + upiId;
+
+            return new ParseResult(am.amount, merchant, paymentMethod,
+                    paymentDetail, category, bank, isUpi(body));
+
+        } catch (Exception e) {
+            // Never crash the caller — return null so importer skips this SMS
+            android.util.Log.e("BankAwareSmsParser", "Parse error: " + e.getMessage());
+            return null;
         }
-
-        // Fall back to generic SmsParser if bank-specific failed
-        if (am == null || am.amount <= 0) {
-            SmsParser.ParsedTransaction generic = SmsParser.parse(body, sender);
-            if (generic == null) return null;
-            String detail = buildPaymentDetail(bank, generic.paymentDetail);
-            return new ParseResult(generic.amount, generic.merchant,
-                    generic.paymentMethod, detail, generic.category, bank, isUpi(body));
-        }
-
-        // Bank-specific result
-        String merchant       = am.merchant;
-        String category       = CategoryEngine.classify(merchant, body);
-        String paymentMethod  = detectPaymentMethod(body);
-        String paymentDetail  = buildPaymentDetail(bank, buildDetailFromBody(body, bank));
-        String upiId          = UpiDetector.detectUpiId(body);
-        if (upiId != null) paymentDetail += " · " + upiId;
-
-        return new ParseResult(am.amount, merchant, paymentMethod, paymentDetail,
-                category, bank, isUpi(body));
     }
 
     // ═══════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ═══════════════════════════════════════════════════════════════
 
-    /** Try a list of patterns and return first successful AmountMerchant */
+    /**
+     * Try each pattern in order, return first successful AmountMerchant.
+     * Defensive: skips null patterns (safeCompile returns null on bad regex).
+     */
     private static AmountMerchant tryPatterns(String body, Pattern... patterns) {
         for (Pattern p : patterns) {
-            Matcher m = p.matcher(body);
-            if (m.find()) {
-                try {
-                    double amount = Double.parseDouble(m.group(1).replace(",", ""));
-                    String merchant = m.group(2).trim();
+            if (p == null) continue; // safeCompile returned null — skip
+            try {
+                Matcher m = p.matcher(body);
+                if (m.find()) {
+                    // FIX 2: Defensive Double.parseDouble — returns null instead of crashing
+                    double amount;
+                    try {
+                        amount = Double.parseDouble(m.group(1).replace(",", ""));
+                    } catch (NumberFormatException nfe) {
+                        continue; // bad amount string — try next pattern
+                    }
+                    if (amount <= 0 || amount >= 10_000_000) continue; // sanity check
+
+                    String merchant = m.group(2) != null ? m.group(2).trim() : "";
                     merchant = cleanMerchant(merchant);
-                    if (amount > 0 && merchant.length() >= 2) {
+                    if (merchant.length() >= 2) {
                         return new AmountMerchant(amount, titleCase(merchant));
                     }
-                } catch (Exception ignored) {}
+                }
+            } catch (Exception e) {
+                android.util.Log.e("BankAwareSmsParser", "Pattern match error: " + e.getMessage());
             }
         }
         return null;
     }
 
-    /** Strip trailing noise from extracted merchant name */
+    /**
+     * Safely compile a regex pattern.
+     * Returns null instead of crashing the app if the pattern is invalid.
+     * A null pattern is skipped in tryPatterns().
+     */
+    private static Pattern safeCompile(String regex, int flags) {
+        try {
+            return Pattern.compile(regex, flags);
+        } catch (PatternSyntaxException e) {
+            android.util.Log.e("BankAwareSmsParser", "Bad regex pattern: " + e.getMessage());
+            return null;
+        }
+    }
+
     private static String cleanMerchant(String s) {
-        // Remove trailing "via UPI", "Ref...", date patterns
+        if (s == null) return "";
         s = s.replaceAll("(?i)\\s+(via|ref|on|avail|avbl|mob|utr)\\b.*$", "").trim();
         s = s.replaceAll("(?i)\\b(your|the|a|an)\\b", "").trim();
         s = s.replaceAll("\\s{2,}", " ").trim();
@@ -195,12 +194,11 @@ public class BankAwareSmsParser {
     }
 
     private static String detectPaymentMethod(String body) {
+        if (body == null) return "BANK";
         String lower = body.toLowerCase();
-        if (lower.contains("upi"))         return "UPI";
+        if (lower.contains("upi"))                                          return "UPI";
         if (lower.contains("credit card") || lower.contains("credit a/c")) return "CREDIT_CARD";
         if (lower.contains("debit card")  || lower.contains("debit a/c"))  return "DEBIT_CARD";
-        if (lower.contains("imps"))        return "BANK";
-        if (lower.contains("neft"))        return "BANK";
         return "BANK";
     }
 
@@ -209,15 +207,15 @@ public class BankAwareSmsParser {
         Matcher card = Pattern.compile("[Xx*]{0,8}([0-9]{4})").matcher(body);
         String last4 = card.find() ? " (xx" + card.group(1) + ")" : "";
         switch (method) {
-            case "UPI":          return bank + " UPI";
-            case "CREDIT_CARD":  return bank + " Credit Card" + last4;
-            case "DEBIT_CARD":   return bank + " Debit Card" + last4;
-            default:             return bank + " Bank Transfer";
+            case "UPI":         return bank + " UPI";
+            case "CREDIT_CARD": return bank + " Credit Card" + last4;
+            case "DEBIT_CARD":  return bank + " Debit Card" + last4;
+            default:            return bank + " Bank Transfer";
         }
     }
 
     private static String buildPaymentDetail(String bank, String existing) {
-        if (bank == null || bank.isEmpty()) return existing;
+        if (bank == null || bank.isEmpty()) return existing != null ? existing : "";
         if (existing != null && existing.toUpperCase().startsWith(bank)) return existing;
         return bank + " " + (existing != null ? existing : "");
     }
@@ -227,6 +225,7 @@ public class BankAwareSmsParser {
     }
 
     private static String titleCase(String s) {
+        if (s == null || s.isEmpty()) return s;
         StringBuilder sb = new StringBuilder();
         for (String w : s.toLowerCase().split("\\s+")) {
             if (!w.isEmpty()) {
@@ -238,12 +237,11 @@ public class BankAwareSmsParser {
         return sb.toString().trim();
     }
 
-    /** Internal holder for extracted amount + merchant */
     private static class AmountMerchant {
         final double amount;
         final String merchant;
         AmountMerchant(double amount, String merchant) {
-            this.amount = amount;
+            this.amount   = amount;
             this.merchant = merchant;
         }
     }

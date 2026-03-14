@@ -101,13 +101,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void observeData() {
-        db.transactionDao().getAll().observe(this, list -> {
+        // FIX 6: Only load last 50 rows in dashboard — prevents UI lag after large imports
+        db.transactionDao().getRecent(50).observe(this, list -> {
             if (list == null) return;
             List<Transaction> recent = list.size() > 6 ? list.subList(0, 6) : list;
             adapter.setTransactions(recent);
-            tvTransCount.setText(list.size() + " total");
-            exec.execute(() -> updateStats(list));
+            // Trigger stats recalc on background thread using full data
+            exec.execute(() -> {
+                List<Transaction> all = db.transactionDao().getAllSync();
+                if (all != null) updateStats(all);
+            });
         });
+
+        // Separate count observer — shows total without loading all rows into memory
+        db.transactionDao().getTotalCount().observe(this, count ->
+            tvTransCount.setText((count != null ? count : 0) + " total"));
     }
 
     private void updateStats(List<Transaction> list) {

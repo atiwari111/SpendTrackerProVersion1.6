@@ -1,12 +1,16 @@
 package com.spendtracker.pro;
 
 import androidx.room.Entity;
+import androidx.room.Index;
 import androidx.room.PrimaryKey;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-@Entity(tableName = "transactions")
+// FIX 5: @Index on rawSms — makes findBySms() O(log n) instead of full table scan.
+// Critical for duplicate detection during large SMS imports.
+@Entity(tableName = "transactions",
+        indices = {@Index(value = "rawSms")})
 public class Transaction {
     @PrimaryKey(autoGenerate = true)
     public int id;
@@ -22,8 +26,8 @@ public class Transaction {
     public String smsAddress;
     public boolean isRecurring;
     public String recurringId;
-    public boolean isManual;         // true = user added manually
-    public boolean isSelfTransfer;   // true = self-transfer, excluded from totals
+    public boolean isManual;        // true = user added manually
+    public boolean isSelfTransfer;  // true = excluded from totals
 
     public Transaction() {}
 

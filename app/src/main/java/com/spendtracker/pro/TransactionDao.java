@@ -7,8 +7,7 @@ import java.util.List;
 @Dao
 public interface TransactionDao {
 
-    // FIX 3: OnConflictStrategy.IGNORE — duplicate inserts are silently skipped
-    // instead of crashing with a SQLiteConstraintException
+    // FIX 3: OnConflictStrategy.IGNORE — duplicate inserts silently skipped
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     void insert(Transaction t);
 
@@ -21,8 +20,17 @@ public interface TransactionDao {
     @Delete
     void delete(Transaction t);
 
+    // Full list — used by Analytics, Insights, budget recalc
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     LiveData<List<Transaction>> getAll();
+
+    // FIX 6: Dashboard uses this — LIMIT 50 prevents UI lag after large imports
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT :limit")
+    LiveData<List<Transaction>> getRecent(int limit);
+
+    // FIX 6: Separate LiveData count so dashboard can show "X total" without loading all rows
+    @Query("SELECT COUNT(*) FROM transactions")
+    LiveData<Integer> getTotalCount();
 
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     List<Transaction> getAllSync();
@@ -39,6 +47,7 @@ public interface TransactionDao {
     @Query("SELECT category, SUM(amount) as total FROM transactions WHERE timestamp >= :start AND timestamp <= :end GROUP BY category ORDER BY total DESC")
     List<CategorySum> getCategorySumByDateRange(long start, long end);
 
+    // FIX 5: rawSms has @Index in Transaction entity — this lookup is O(log n) not O(n)
     @Query("SELECT * FROM transactions WHERE rawSms = :sms LIMIT 1")
     Transaction findBySms(String sms);
 
