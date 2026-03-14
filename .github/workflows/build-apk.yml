@@ -8,21 +8,57 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+
       - uses: android-actions/setup-android@v3
+
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.4'
+
       - run: gradle wrapper --gradle-version 8.4 --distribution-type bin
+
       - run: chmod +x ./gradlew
-      - run: ./gradlew assembleDebug --stacktrace --no-daemon
-      - uses: actions/upload-artifact@v4
+
+      # Build Debug APK
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      # Build Release APK
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
+
+      # Build Play Store Bundle
+      - name: Build AAB
+        run: ./gradlew bundleRelease --stacktrace --no-daemon
+
+      # Upload Debug APK
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
-          name: SpendTrackerPro-APK
+          name: SpendTrackerPro-Debug-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # Upload Release APK
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpendTrackerPro-Release-APK
+          path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      # Upload AAB (Google Play)
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpendTrackerPro-AAB
+          path: app/build/outputs/bundle/release/app-release.aab
           retention-days: 30
