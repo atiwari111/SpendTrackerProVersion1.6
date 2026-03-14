@@ -619,7 +619,7 @@ public class CategoryEngine {
      */
     public static String resolveUpiMerchant(String raw) {
         if (raw == null) return null;
-        String lower = raw.toLowerCase().replaceAll("\s+", ".");
+        String lower = raw.toLowerCase().replaceAll("\\s+", ".");
         for (Map.Entry<String, String> e : UPI_ID_MAP.entrySet()) {
             if (lower.contains(e.getKey())) return e.getValue();
         }
