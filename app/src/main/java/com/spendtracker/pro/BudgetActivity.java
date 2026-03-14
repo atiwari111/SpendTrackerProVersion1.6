@@ -205,17 +205,12 @@ public class BudgetActivity extends AppCompatActivity {
                 // Build summary message
                 StringBuilder sb = new StringBuilder();
                 sb.append("Based on your past ").append(suggestions.get(0).monthsAnalysed)
-                  .append(" month(s) of spending:
-
-");
+                  .append(" month(s) of spending:\n\n");
                 for (AutoBudgetGenerator.BudgetSuggestion s : suggestions) {
-                    sb.append(s.category).append("
-")
+                    sb.append(s.category).append("\n")
                       .append("  Avg: ₹").append(String.format("%.0f", s.avgSpend))
                       .append("  →  Budget: ₹").append(String.format("%.0f", s.suggestedLimit))
-                      .append("
-
-");
+                      .append("\n\n");
                 }
 
                 new androidx.appcompat.app.AlertDialog.Builder(this, R.style.AlertDialogDark)
