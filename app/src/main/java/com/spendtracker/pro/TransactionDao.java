@@ -6,10 +6,20 @@ import java.util.List;
 
 @Dao
 public interface TransactionDao {
-    @Insert void insert(Transaction t);
-    @Insert void insertAll(List<Transaction> list);
-    @Update void update(Transaction t);
-    @Delete void delete(Transaction t);
+
+    // FIX 3: OnConflictStrategy.IGNORE — duplicate inserts are silently skipped
+    // instead of crashing with a SQLiteConstraintException
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    void insert(Transaction t);
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    void insertAll(List<Transaction> list);
+
+    @Update
+    void update(Transaction t);
+
+    @Delete
+    void delete(Transaction t);
 
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     LiveData<List<Transaction>> getAll();
