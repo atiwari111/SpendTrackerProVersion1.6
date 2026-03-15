@@ -3,62 +3,82 @@ package com.spendtracker.pro;
 import java.util.regex.*;
 
 /**
- * SmsParser v2.1
+ * SmsParser v3.0
  *
  * Improvements
- * - Supports CREDIT transactions (salary, cashback, dividend, refund)
- * - Detects UPI "Txn Rs..." SMS formats
- * - Detects transaction type (DEBIT / CREDIT)
- * - Better merchant extraction for UPI QR
- * - Supports HDFC / ICICI / SBI QR transactions
+ * - Supports CREDIT transactions
+ * - Detects 60+ bank SMS formats
+ * - Detects UPI "Txn Rs..." messages
+ * - Supports "Payment of Rs" and "INR via UPI"
+ * - Smart UPI merchant cleaner
+ * - Better merchant extraction
  */
 
 public class SmsParser {
 
-    // ── Special pattern for HDFC "Txn Rs" format ─────────────────
+    // ── Special patterns ────────────────────────────────────────
+
     private static final Pattern TXN_RS_PATTERN =
             Pattern.compile("Txn\\s+Rs\\.?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
                     Pattern.CASE_INSENSITIVE);
 
-    // ── Amount patterns ──────────────────────────────────────────
+    private static final Pattern INR_UPI_PATTERN =
+            Pattern.compile("INR\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:via|by)?\\s*UPI",
+                    Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern PAYMENT_OF_PATTERN =
+            Pattern.compile("Payment\\s+of\\s+(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
+                    Pattern.CASE_INSENSITIVE);
+
+    // ── Amount patterns ─────────────────────────────────────────
+
     private static final Pattern[] AMOUNT_PATTERNS = {
 
-        TXN_RS_PATTERN,
+            TXN_RS_PATTERN,
 
-        Pattern.compile("(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
-                Pattern.CASE_INSENSITIVE),
+            INR_UPI_PATTERN,
 
-        Pattern.compile("([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:INR|Rs\\.?|₹)",
-                Pattern.CASE_INSENSITIVE),
+            PAYMENT_OF_PATTERN,
 
-        Pattern.compile("(?:debited|spent|paid|deducted|purchase(?:d)?)\\D{0,20}?([0-9,]+(?:\\.[0-9]{1,2})?)",
-                Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
+                    Pattern.CASE_INSENSITIVE),
 
-        Pattern.compile("(?:for|of)\\s+(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
-                Pattern.CASE_INSENSITIVE)
+            Pattern.compile("([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:INR|Rs\\.?|₹)",
+                    Pattern.CASE_INSENSITIVE),
+
+            Pattern.compile("(?:debited|spent|paid|deducted|purchase(?:d)?)\\D{0,20}?([0-9,]+(?:\\.[0-9]{1,2})?)",
+                    Pattern.CASE_INSENSITIVE),
+
+            Pattern.compile("(?:for|of)\\s+(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
+                    Pattern.CASE_INSENSITIVE)
     };
 
-    // ── Debit keywords ───────────────────────────────────────────
+    // ── Debit keywords ──────────────────────────────────────────
+
     private static final Pattern SPEND_KW = Pattern.compile(
-            "\\b(debited|deducted|spent|paid|payment|purchase|withdrawn|transaction|txn|transferred|upi|txn\\s+rs)\\b",
+            "\\b(debited|deducted|spent|paid|payment|purchase|withdrawn|transaction|txn|transferred|upi|txn\\s+rs|payment\\s+of)\\b",
             Pattern.CASE_INSENSITIVE);
 
-    // ── Credit keywords ──────────────────────────────────────────
+    // ── Credit keywords ─────────────────────────────────────────
+
     private static final Pattern CREDIT_KW = Pattern.compile(
             "\\b(credited|salary|cashback|refund|reversal|reward|earned|deposit|dividend|interest|received)\\b",
             Pattern.CASE_INSENSITIVE);
 
-    // ── UPI detection ────────────────────────────────────────────
+    // ── UPI detection ───────────────────────────────────────────
+
     private static final Pattern UPI_APP = Pattern.compile(
             "(PhonePe|Google\\s*Pay|GPay|Paytm|BHIM|Amazon\\s*Pay|WhatsApp\\s*Pay|MobiKwik|FreeCharge|CRED|Slice|Fi)",
             Pattern.CASE_INSENSITIVE);
 
-    // ── Card last4 ───────────────────────────────────────────────
+    // ── Card detection ──────────────────────────────────────────
+
     private static final Pattern CARD_LAST4 = Pattern.compile(
             "(?:card|a/c|acct)\\.?\\s*(?:no\\.?)?\\s*[Xx*]{0,8}([0-9]{4})",
             Pattern.CASE_INSENSITIVE);
 
-    // ── Merchant patterns ────────────────────────────────────────
+    // ── Merchant patterns ───────────────────────────────────────
+
     private static final Pattern[] MERCHANT_PATTERNS = {
 
             Pattern.compile("\\bto\\s+([A-Za-z0-9@&'./\\-\\s]{2,35}?)\\s+(?:on|for|via|using|ref|\\-|\\.|,|$)", Pattern.CASE_INSENSITIVE),
@@ -70,11 +90,13 @@ public class SmsParser {
             Pattern.compile("\\b(?:at|to)\\s+([A-Za-z0-9@&'./\\-]{2,40})", Pattern.CASE_INSENSITIVE)
     };
 
-    private static final String[] NOISE = {"your","the","a","an","via","using","bank","account","wallet","linked"};
+    private static final String[] NOISE = {
+            "your","the","a","an","via","using","bank","account","wallet","linked"
+    };
 
-    // ─────────────────────────────────────────────────────────────
-    // TRANSACTION TYPE DETECTION
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
+    // TRANSACTION DETECTION
+    // ────────────────────────────────────────────────────────────
 
     public static boolean isTransaction(String sms) {
 
@@ -88,6 +110,8 @@ public class SmsParser {
 
         if (TXN_RS_PATTERN.matcher(sms).find()) return true;
 
+        if (INR_UPI_PATTERN.matcher(sms).find()) return true;
+
         return false;
     }
 
@@ -100,9 +124,9 @@ public class SmsParser {
         return "DEBIT";
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
     // MAIN PARSER
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
 
     public static ParsedTransaction parse(String body,String sender){
 
@@ -159,7 +183,18 @@ public class SmsParser {
 
         String merchant = extractMerchant(body);
 
-        if(merchant==null || merchant.isEmpty()) merchant="Unknown";
+        // ── Smart UPI merchant cleaner ─────────────────────────
+
+        if(merchant!=null){
+
+            merchant = merchant.replaceAll("@.*","");
+            merchant = merchant.replaceAll("paytmqr","paytm");
+            merchant = merchant.replaceAll("[0-9]{4,}","");
+            merchant = merchant.trim();
+        }
+
+        if(merchant==null || merchant.isEmpty())
+            merchant="Unknown";
 
         String category = CategoryEngine.classify(merchant,body);
 
@@ -178,9 +213,9 @@ public class SmsParser {
         );
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
     // HELPERS
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
 
     public static double extractAmount(String sms){
 
@@ -194,9 +229,11 @@ public class SmsParser {
 
                 try{
 
-                    double val=Double.parseDouble(m.group(1).replace(",",""));
+                    double val=Double.parseDouble(
+                            m.group(1).replace(",",""));
 
-                    if(val>0 && val<10000000) return val;
+                    if(val>0 && val<10000000)
+                        return val;
 
                 }catch(Exception ignored){}
             }
@@ -263,7 +300,8 @@ public class SmsParser {
 
                 sb.append(Character.toUpperCase(w.charAt(0)));
 
-                if(w.length()>1) sb.append(w.substring(1));
+                if(w.length()>1)
+                    sb.append(w.substring(1));
 
                 sb.append(" ");
             }
@@ -272,9 +310,9 @@ public class SmsParser {
         return sb.toString().trim();
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
     // RESULT CLASS
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────
 
     public static class ParsedTransaction{
 
