@@ -1,0 +1,7 @@
+<TextView
+    android:text="Say hi to your new finance tracker"
+    android:textColor="#FFFFFF"
+    android:textSize="22sp"
+    android:gravity="center"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"/>
