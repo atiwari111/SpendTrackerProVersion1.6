@@ -41,7 +41,7 @@ public class CategoryEngine {
         CATEGORIES.put("💰 Investment", new CategoryInfo("💰 Investment","💰",0xFFFFD700));
         CATEGORIES.put("🎁 Gifts", new CategoryInfo("🎁 Gifts","🎁",0xFFFF9AA2));
 
-        // Income categories
+        // income
         CATEGORIES.put("💵 Salary", new CategoryInfo("💵 Salary","💵",0xFF4CAF50));
         CATEGORIES.put("🎉 Cashback", new CategoryInfo("🎉 Cashback","🎉",0xFF81C784));
         CATEGORIES.put("📈 Investment Return", new CategoryInfo("📈 Investment Return","📈",0xFF66BB6A));
@@ -51,7 +51,7 @@ public class CategoryEngine {
     }
 
     //────────────────────────────
-    // MERCHANT MAP
+    // MERCHANT MAP (Expanded)
     //────────────────────────────
 
     public static final Map<String,String> MERCHANT_MAP = new LinkedHashMap<>();
@@ -61,44 +61,36 @@ public class CategoryEngine {
         MERCHANT_MAP.put("swiggy","🍔 Food");
         MERCHANT_MAP.put("zomato","🍔 Food");
         MERCHANT_MAP.put("dominos","🍔 Food");
+        MERCHANT_MAP.put("pizza","🍔 Food");
+        MERCHANT_MAP.put("kfc","🍔 Food");
+        MERCHANT_MAP.put("mcdonald","🍔 Food");
 
         MERCHANT_MAP.put("amazon","🛍️ Shopping");
         MERCHANT_MAP.put("flipkart","🛍️ Shopping");
+        MERCHANT_MAP.put("myntra","🛍️ Shopping");
+        MERCHANT_MAP.put("meesho","🛍️ Shopping");
+        MERCHANT_MAP.put("ajio","🛍️ Shopping");
 
         MERCHANT_MAP.put("uber","🚗 Transport");
         MERCHANT_MAP.put("ola","🚗 Transport");
+        MERCHANT_MAP.put("rapido","🚗 Transport");
 
-        MERCHANT_MAP.put("hp","⛽ Fuel");
+        MERCHANT_MAP.put("hp petrol","⛽ Fuel");
+        MERCHANT_MAP.put("indianoil","⛽ Fuel");
         MERCHANT_MAP.put("shell","⛽ Fuel");
 
         MERCHANT_MAP.put("netflix","🎬 Entertainment");
         MERCHANT_MAP.put("spotify","🎬 Entertainment");
+        MERCHANT_MAP.put("youtube","🎬 Entertainment");
 
         MERCHANT_MAP.put("zerodha","💰 Investment");
         MERCHANT_MAP.put("groww","💰 Investment");
-    }
+        MERCHANT_MAP.put("upstox","💰 Investment");
 
-    //────────────────────────────
-    // KEYWORDS
-    //────────────────────────────
-
-    private static final Map<String,String[]> KEYWORDS = new LinkedHashMap<>();
-
-    static {
-
-        KEYWORDS.put("🍔 Food", new String[]{"restaurant","pizza","burger","cafe"});
-        KEYWORDS.put("🛒 Groceries", new String[]{"grocery","kirana","vegetable"});
-        KEYWORDS.put("🚗 Transport", new String[]{"metro","cab","taxi","auto"});
-        KEYWORDS.put("⛽ Fuel", new String[]{"petrol","diesel","fuel"});
-        KEYWORDS.put("🛍️ Shopping", new String[]{"mall","store","shopping"});
-        KEYWORDS.put("🔌 Bills", new String[]{"electricity","recharge","broadband"});
-        KEYWORDS.put("🎬 Entertainment", new String[]{"movie","subscription","ott"});
-        KEYWORDS.put("🏥 Health", new String[]{"hospital","clinic","doctor"});
-        KEYWORDS.put("💊 Medicine", new String[]{"pharmacy","medicine"});
-        KEYWORDS.put("📚 Education", new String[]{"school","college","course"});
-        KEYWORDS.put("💪 Fitness", new String[]{"gym","fitness","yoga"});
-        KEYWORDS.put("💰 Investment", new String[]{"sip","stocks","mutual fund"});
-        KEYWORDS.put("🎁 Gifts", new String[]{"gift","flower","cake"});
+        MERCHANT_MAP.put("paytm","🔌 Bills");
+        MERCHANT_MAP.put("phonepe","🔌 Bills");
+        MERCHANT_MAP.put("gpay","🔌 Bills");
+        MERCHANT_MAP.put("googlepay","🔌 Bills");
     }
 
     //────────────────────────────
@@ -129,84 +121,91 @@ public class CategoryEngine {
     }
 
     //────────────────────────────
-    // CLASSIFY ENGINE
+    // SMART UPI MERCHANT CLEANER
+    //────────────────────────────
+
+    public static String resolveUpiMerchant(String merchant){
+
+        if(merchant==null) return "Unknown";
+
+        String m = merchant.toLowerCase();
+
+        m = m.replaceAll("paytmqr","paytm");
+        m = m.replaceAll("@.*","");
+
+        if(m.contains("amazon")) return "Amazon";
+        if(m.contains("flipkart")) return "Flipkart";
+        if(m.contains("swiggy")) return "Swiggy";
+        if(m.contains("zomato")) return "Zomato";
+        if(m.contains("uber")) return "Uber";
+        if(m.contains("ola")) return "Ola";
+        if(m.contains("paytm")) return "Paytm";
+        if(m.contains("phonepe")) return "PhonePe";
+        if(m.contains("gpay")) return "Google Pay";
+
+        return merchant;
+    }
+
+    //────────────────────────────
+    // SIMPLE AUTO CATEGORY
+    //────────────────────────────
+
+    public static String autoCategory(String merchant){
+
+        if(merchant==null) return "💼 Others";
+
+        String m = merchant.toLowerCase();
+
+        for(Map.Entry<String,String> e:MERCHANT_MAP.entrySet()){
+
+            if(m.contains(e.getKey()))
+                return e.getValue();
+        }
+
+        return "💼 Others";
+    }
+
+    //────────────────────────────
+    // CLASSIFICATION ENGINE
     //────────────────────────────
 
     public static String classify(String merchant,String smsBody){
 
         if(merchant==null) merchant="";
-        merchant=merchant.toLowerCase();
+
+        merchant = resolveUpiMerchant(merchant).toLowerCase();
 
         String body = smsBody!=null ? smsBody.toLowerCase() : "";
 
-        //────────────────────────
-        // INCOME DETECTION
-        //────────────────────────
+        // income detection
 
-        if(merchant.contains("salary") || body.contains("salary"))
+        if(body.contains("salary"))
             return "💵 Salary";
 
-        if(merchant.contains("cashback") || body.contains("cashback"))
+        if(body.contains("cashback"))
             return "🎉 Cashback";
 
-        if(merchant.contains("dividend") || body.contains("dividend"))
-            return "📈 Investment Return";
-
-        if(merchant.contains("interest") || body.contains("interest"))
-            return "📈 Investment Return";
-
-        if(merchant.contains("refund") || body.contains("refund"))
+        if(body.contains("refund"))
             return "↩️ Refund";
 
-        //────────────────────────
-        // LEARNED CATEGORY
-        //────────────────────────
+        if(body.contains("interest") || body.contains("dividend"))
+            return "📈 Investment Return";
+
+        // learned merchants
 
         String learned=getLearnedCategory(merchant);
+
         if(learned!=null) return learned;
 
-        //────────────────────────
-        // EXACT MERCHANT MATCH
-        //────────────────────────
-
-        if(MERCHANT_MAP.containsKey(merchant))
-            return MERCHANT_MAP.get(merchant);
-
-        //────────────────────────
-        // PARTIAL MERCHANT MATCH
-        //────────────────────────
+        // merchant map
 
         for(Map.Entry<String,String> e:MERCHANT_MAP.entrySet()){
 
-            String key=e.getKey();
-
-            if(merchant.contains(key) || key.contains(merchant))
+            if(merchant.contains(e.getKey()))
                 return e.getValue();
         }
 
-        //────────────────────────
-        // KEYWORD MATCH
-        //────────────────────────
-
-        String text=merchant+" "+body;
-
-        for(Map.Entry<String,String[]> entry:KEYWORDS.entrySet()){
-
-            for(String kw:entry.getValue()){
-
-                if(text.contains(kw))
-                    return entry.getKey();
-            }
-        }
-
-        //────────────────────────
-        // NLP FALLBACK
-        //────────────────────────
-
-        String nlp=NlpCategorizer.predict(merchant);
-
-        if(!nlp.equals("💼 Others"))
-            return nlp;
+        // fallback
 
         return "💼 Others";
     }
