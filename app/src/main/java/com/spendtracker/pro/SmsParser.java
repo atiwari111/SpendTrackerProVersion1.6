@@ -3,29 +3,44 @@ package com.spendtracker.pro;
 import java.util.regex.*;
 
 /**
- * SmsParser v2.0
+ * SmsParser v2.1
  *
  * Improvements
  * - Supports CREDIT transactions (salary, cashback, dividend, refund)
  * - Detects UPI "Txn Rs..." SMS formats
  * - Detects transaction type (DEBIT / CREDIT)
  * - Better merchant extraction for UPI QR
- * - Keeps backward compatibility
+ * - Supports HDFC / ICICI / SBI QR transactions
  */
 
 public class SmsParser {
 
+    // ── Special pattern for HDFC "Txn Rs" format ─────────────────
+    private static final Pattern TXN_RS_PATTERN =
+            Pattern.compile("Txn\\s+Rs\\.?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
+                    Pattern.CASE_INSENSITIVE);
+
     // ── Amount patterns ──────────────────────────────────────────
     private static final Pattern[] AMOUNT_PATTERNS = {
-        Pattern.compile("(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:INR|Rs\\.?|₹)", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("(?:debited|spent|paid|deducted|purchase(?:d)?)\\D{0,20}?([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("(?:for|of)\\s+(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE)
+
+        TXN_RS_PATTERN,
+
+        Pattern.compile("(?:INR|Rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
+                Pattern.CASE_INSENSITIVE),
+
+        Pattern.compile("([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:INR|Rs\\.?|₹)",
+                Pattern.CASE_INSENSITIVE),
+
+        Pattern.compile("(?:debited|spent|paid|deducted|purchase(?:d)?)\\D{0,20}?([0-9,]+(?:\\.[0-9]{1,2})?)",
+                Pattern.CASE_INSENSITIVE),
+
+        Pattern.compile("(?:for|of)\\s+(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)",
+                Pattern.CASE_INSENSITIVE)
     };
 
     // ── Debit keywords ───────────────────────────────────────────
     private static final Pattern SPEND_KW = Pattern.compile(
-            "\\b(debited|deducted|spent|paid|payment|purchase|withdrawn|transaction|txn|transferred|upi)\\b",
+            "\\b(debited|deducted|spent|paid|payment|purchase|withdrawn|transaction|txn|transferred|upi|txn\\s+rs)\\b",
             Pattern.CASE_INSENSITIVE);
 
     // ── Credit keywords ──────────────────────────────────────────
@@ -52,7 +67,7 @@ public class SmsParser {
 
             Pattern.compile("\\btowards\\s+([A-Za-z0-9@&'./\\-\\s]{2,35}?)\\s+(?:on|for|via|using|ref|\\-|\\.|,|$)", Pattern.CASE_INSENSITIVE),
 
-            Pattern.compile("\\b(?:at|to)\\s+([A-Za-z0-9@&'./\\-]{2,30})", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("\\b(?:at|to)\\s+([A-Za-z0-9@&'./\\-]{2,40})", Pattern.CASE_INSENSITIVE)
     };
 
     private static final String[] NOISE = {"your","the","a","an","via","using","bank","account","wallet","linked"};
@@ -70,6 +85,8 @@ public class SmsParser {
         if (SPEND_KW.matcher(sms).find()) return true;
 
         if (CREDIT_KW.matcher(sms).find()) return true;
+
+        if (TXN_RS_PATTERN.matcher(sms).find()) return true;
 
         return false;
     }
@@ -204,7 +221,7 @@ public class SmsParser {
 
                 if(raw.length()<2) continue;
 
-                if(raw.matches(".*\\d{5,}.*")) continue;
+                if(raw.matches(".*\\d{6,}.*")) continue;
 
                 return titleCase(raw);
             }
